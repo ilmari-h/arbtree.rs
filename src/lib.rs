@@ -2,14 +2,13 @@ use std::collections::{VecDeque, HashMap, HashSet};
 use std::ops::Index;
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Node<T> {
     pub val: T,
     pub pos: NodePosition
 }
 
-#[derive(Debug)]
-#[derive(Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct NodePosition {
     pub depth: usize,
     pub arena_idx: usize,
@@ -83,19 +82,17 @@ pub struct TreeIter<'a,T> {
 impl<'a,T> Iterator for TreeIter<'a,T> {
     type Item = &'a Node<T>;
     fn next(& mut self) -> Option<Self::Item> {
-        if let Some(n_i) = self.idx_queue.pop_front() {
-            if n_i > self.arena.len() - 1 { return None }
-            let found = &self.arena[n_i];
-            if self.dfs {
-                for leaf_idx in found.pos.children.iter().rev() {
-                    self.idx_queue.push_front(*leaf_idx)
-                }
-            } else {
-                self.idx_queue.extend(&found.pos.children);
+        let n_i = self.idx_queue.pop_front()?;
+        if n_i > self.arena.len() - 1 { return None }
+        let found = &self.arena[n_i];
+        if self.dfs {
+            for leaf_idx in found.pos.children.iter().rev() {
+                self.idx_queue.push_front(*leaf_idx)
             }
-            return Some(&self.arena[n_i]);
+        } else {
+            self.idx_queue.extend(&found.pos.children);
         }
-        return None;
+        return Some(&self.arena[n_i]);
     }
 }
 
@@ -120,20 +117,18 @@ impl<T> OrderedTree<T> for Tree<T> where T: PartialEq {
 
     fn add_node(&mut self, parent: &T, val: T) -> Option<NodePosition> {
         let n_i = self.nodes.len();
-        if let Some(parent) = self.find_mut_node(parent) {
-            let p_depth = parent.pos.depth;
-            let p_idx = parent.pos.arena_idx;
-            parent.pos.children.push(n_i);
-            let pos: NodePosition = NodePosition{
-                depth: p_depth + 1,
-                arena_idx: n_i,
-                parent_idx: p_idx,
-                children: Vec::new()
-            };
-            self.nodes.push(Node{val, pos: pos.clone()});
-            return Some(pos);
-        }
-        return None;
+        let parent = self.find_mut_node(parent)?;
+        let p_depth = parent.pos.depth;
+        let p_idx = parent.pos.arena_idx;
+        parent.pos.children.push(n_i);
+        let pos: NodePosition = NodePosition{
+            depth: p_depth + 1,
+            arena_idx: n_i,
+            parent_idx: p_idx,
+            children: Vec::new()
+        };
+        self.nodes.push(Node{val, pos: pos.clone()});
+        return Some(pos);
     }
 }
 
@@ -179,21 +174,18 @@ impl<T> Tree<T>
 
     pub fn add_child_to_index(&mut self, parent_index: usize, val: T) -> Option<NodePosition> {
         let n_i = self.nodes.len();
-        if let Some(parent) = self.get_mut_node(parent_index) {
-
-            let p_depth = parent.pos.depth;
-            let p_idx = parent.pos.arena_idx;
-            parent.pos.children.push(n_i);
-            let pos: NodePosition = NodePosition{
-                depth: p_depth + 1,
-                arena_idx: n_i,
-                parent_idx: p_idx,
-                children: Vec::new()
-            };
-            self.nodes.push(Node{val, pos: pos.clone()});
-            return Some(pos);
-        }
-        return None;
+        let parent = self.get_mut_node(parent_index)?;
+        let p_depth = parent.pos.depth;
+        let p_idx = parent.pos.arena_idx;
+        parent.pos.children.push(n_i);
+        let pos: NodePosition = NodePosition{
+            depth: p_depth + 1,
+            arena_idx: n_i,
+            parent_idx: p_idx,
+            children: Vec::new()
+        };
+        self.nodes.push(Node{val, pos: pos.clone()});
+        return Some(pos);
     }
 
     /**
@@ -205,30 +197,25 @@ impl<T> Tree<T>
         let valid_index = new_index > index && index != 0;
         if !valid_index { return None };
 
-        if let Some(pi) = self.get_node(index).map(|n| n.pos.parent_idx) {
-
-            if let Some(parent) = self.get_node(pi) {
-
-                let idx = parent.pos.arena_idx;
-                let d = parent.pos.depth;
-                let new_pos = NodePosition{
-                        depth: d + 1,
-                        children: vec![],
-                        arena_idx: new_index,
-                        parent_idx: idx
-                    };
-                let new_node = Node{
-                    val,
-                    pos: new_pos.clone()
-                };
-                self.nodes.push(new_node);
-                let mut_parent = self.get_mut_node(pi).unwrap();
-                let emplace_child_idx = mut_parent.pos.children.iter().position(|n| *n == index).unwrap();
-                mut_parent.pos.children.insert(emplace_child_idx, new_index);
-                return Some(new_pos);
-            }
-        }
-        return None;
+        let p_idx = self.get_node(index).map(|n| n.pos.parent_idx)?;
+        let parent = self.get_node(p_idx)?;
+        let idx = parent.pos.arena_idx;
+        let d = parent.pos.depth;
+        let new_pos = NodePosition{
+            depth: d + 1,
+            children: vec![],
+            arena_idx: new_index,
+            parent_idx: idx
+        };
+        let new_node = Node{
+            val,
+            pos: new_pos.clone()
+        };
+        self.nodes.push(new_node);
+        let mut_parent = self.get_mut_node(p_idx).unwrap();
+        let emplace_child_idx = mut_parent.pos.children.iter().position(|n| *n == index).unwrap();
+        mut_parent.pos.children.insert(emplace_child_idx, new_index);
+        return Some(new_pos);
     }
 }
 
@@ -249,45 +236,40 @@ mod tree_t {
 
     #[test]
     fn initialization() {
-        let mut tree: Tree<&str> = make_tree();
+        let tree: Tree<&str> = make_tree();
         let vals = ["a","b","c","d","e","f","g"];
 
         assert_eq!(tree.nodes.len(), 7);
 
         let tree_values_in_order: Vec<&str> = (0..7)
             .map(|index| *tree.get(index).unwrap()).collect();
-        print!("{}",tree);
         assert_eq!(tree_values_in_order, vals);
-        assert!(tree.emplace(2, &"x").is_some());
-        print!("{}",tree);
     }
 
-    //#[test]
-    //fn bfs_iteration() {
-    //    let tree: Tree<&str> = make_tree();
-    //    let vals = ["a","b","c","d","e","f","g"];
-    //    let collected: Vec<&str> = tree.iter_bfs().map(|r| *r).collect();
-    //    assert_eq!(collected, vals);
-    //}
+    #[test]
+    fn bfs_iteration() {
+        let tree: Tree<&str> = make_tree();
+        let vals = ["a","b","c","d","e","f","g"];
+        assert!(tree.nodes_bfs().map(|n| n.val).eq(vals));
+    }
 
-    //#[test]
-    //fn dfs_iteration() {
-    //    let tree: Tree<&str> = make_tree();
-    //    let vals = ["a","b","e","c","f","g","d"];
-    //    let collected: Vec<&str> = tree.iter_dfs().map(|r| *r).collect();
-    //    assert_eq!(collected, vals);
-    //}
+    #[test]
+    fn dfs_iteration() {
+        let tree: Tree<&str> = make_tree();
+        let vals = ["a","b","e","c","f","g","d"];
+        assert!(tree.nodes_dfs().map(|n| n.val).eq(vals));
+    }
 
-    //#[test]
-    //fn mutation() {
-    //    let mut tree: Tree<&str> = make_tree();
-    //    let vals_bfs = ["a","b","c","d","e","f","g","h"];
-    //    let vals_dfs = ["a","b","e","c","f","g","h","d"];
-    //    assert_eq!(tree.add_node(&"g", "h").unwrap().arena_idx, 7);
-    //    let collected_bfs: Vec<&str> = tree.iter_bfs().map(|r| *r).collect();
-    //    assert_eq!(collected_bfs, vals_bfs);
+    #[test]
+    fn mutate_by_index() {
+        let mut tree: Tree<&str> = make_tree();
 
-    //    let collected_dfs: Vec<&str> = tree.iter_dfs().map(|r| *r).collect();
-    //    assert_eq!(collected_dfs, vals_dfs);
-    //}
+        let mut new_child = tree.emplace(2, &"x").unwrap();
+        assert_eq!(tree.get(new_child.arena_idx).unwrap(), &"x");
+        new_child = tree.emplace(5, &"y").unwrap();
+        assert_eq!(tree.get(new_child.arena_idx).unwrap(), &"y");
+
+        let vals = ["a","b","x","c","d","e","y","f","g"];
+        assert!(tree.nodes_bfs().map(|n| n.val).eq(vals));
+    }
 }
