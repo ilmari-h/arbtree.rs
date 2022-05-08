@@ -1,3 +1,10 @@
+//! # arbtrees
+//!
+//! `arbtree` is a library for general purpose tree data structures.
+//!
+//! The library provides an interface for working with trees of arbitrary depth and width.
+//! Memory safety is achieved in this simple implementation by using arena allocation.
+//!
 use std::collections::{VecDeque, HashMap, HashSet};
 use std::ops::Index;
 use std::fmt::Display;
@@ -103,7 +110,7 @@ impl<T> Index<usize> for Tree<T> {
     }
 }
 
-trait OrderedTree<T> where T: PartialEq {
+pub trait OrderedTree<T> where T: PartialEq {
 
     fn find_mut_node(&mut self, comp: &T) -> Option<&mut Node<T>>;
     fn add_node(&mut self, parent: &T, val: T) -> Option<NodePosition>;
