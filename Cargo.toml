@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["ilmari-h"]
 edition = "2021"
 license = "Apache-2.0"
+repository = "https://github.com/ilmari-h/arbtree.rs"
 description = "A small library for general purpose tree data structures"
 
 [dependencies]
