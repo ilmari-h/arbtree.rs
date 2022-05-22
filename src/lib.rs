@@ -113,6 +113,12 @@ impl<'a, T> Iterator for TreeIter<'a, T> {
     }
 }
 
+impl<T> ExactSizeIterator for TreeIter<'_,T> {
+    fn len(&self) -> usize {
+        self.arena.len()
+    }
+}
+
 impl<T> Index<usize> for Tree<T> {
     type Output = T;
     fn index(&self, index: usize) -> &Self::Output {
