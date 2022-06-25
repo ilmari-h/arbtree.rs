@@ -6,6 +6,7 @@
 //! The implementation is simple and uses arena allocation where nodes are stored in a `Vec`.
 //! No unsafe blocks and no additional overhead from using smart pointers.
 //!
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Display;
 use std::ops::Index;
@@ -88,6 +89,7 @@ where
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct TreeIter<'a, T> {
     dfs: bool,
     idx_queue: VecDeque<usize>,
@@ -113,7 +115,7 @@ impl<'a, T> Iterator for TreeIter<'a, T> {
     }
 }
 
-impl<T> ExactSizeIterator for TreeIter<'_,T> {
+impl<T> ExactSizeIterator for TreeIter<'_, T> {
     fn len(&self) -> usize {
         self.arena.len()
     }
@@ -180,6 +182,8 @@ impl<T> Tree<T> {
         };
     }
 
+    /// Returns an iterator that traverses the tree in breadth-first order.
+    ///
     pub fn nodes_bfs(&self) -> TreeIter<'_, T> {
         let references: Vec<&Node<T>> = self.nodes.iter().map(|owned| owned).collect();
         return TreeIter {
@@ -189,11 +193,45 @@ impl<T> Tree<T> {
         };
     }
 
+    /// Returns an iterator that traverses the tree in depth-first order.
+    ///
     pub fn nodes_dfs(&self) -> TreeIter<'_, T> {
         let references: Vec<&Node<T>> = self.nodes.iter().map(|owned| owned).collect();
         return TreeIter {
             dfs: true,
             idx_queue: VecDeque::from([0]),
+            arena: references,
+        };
+    }
+
+    /// Returns an iterator that traverses the tree in depth-first order
+    /// starting from the node at index.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Index to start iterating from.
+    ///
+    pub fn nodes_dfs_from(&self, index: usize) -> TreeIter<'_, T> {
+        let references: Vec<&Node<T>> = self.nodes.iter().map(|owned| owned).collect();
+        return TreeIter {
+            dfs: true,
+            idx_queue: VecDeque::from([index]),
+            arena: references,
+        };
+    }
+
+    /// Returns an iterator that traverses the tree in breadth-first order
+    /// starting from the node at index.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Index to start iterating from.
+    ///
+    pub fn nodes_bfs_from(&self, index: usize) -> TreeIter<'_, T> {
+        let references: Vec<&Node<T>> = self.nodes.iter().map(|owned| owned).collect();
+        return TreeIter {
+            dfs: false,
+            idx_queue: VecDeque::from([index]),
             arena: references,
         };
     }
@@ -214,6 +252,14 @@ impl<T> Tree<T> {
         return self.get_mut_node(index).map(|x| &mut x.val);
     }
 
+    /// Add child to node at index. Child is pushed to the end of the node's current children.
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_index` - Index of the parent node.
+    ///
+    /// * `val` - Value of the new child node.
+    ///
     pub fn add_child_to_index(&mut self, parent_index: usize, val: T) -> Option<NodePosition> {
         let n_i = self.nodes.len();
         let parent = self.get_mut_node(parent_index)?;
@@ -233,10 +279,70 @@ impl<T> Tree<T> {
         return Some(pos);
     }
 
-    /**
-     * Place a node to the position of another node, pointed to by index. Pushes siblings to right.
-     * Fails if no node found at index or if node at index is the root.
-     */
+    /// Remove a node from the tree and any child nodes.
+    /// Complexity is usually O(n) where n depends on the amount of nodes in the tree.
+    /// If nodes typically have a lot of children, complexity should be closer to O(n * log n).
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Index of the node to be removed.
+    ///
+    pub fn remove_node(&mut self, index: usize) -> Option<()> {
+        // If removing root, remove all nodes.
+        if index == 0 {
+            self.nodes.clear();
+            return Some(());
+        }
+
+        if index >= self.nodes.len() {
+            return None;
+        }
+
+        let mut idxs: Vec<usize> = self
+            .nodes_bfs_from(index)
+            .map(|n| n.pos.arena_idx)
+            .filter(|i| *i > index)
+            .collect();
+
+        idxs.push(index);
+
+        self.nodes.retain(|n| !idxs.contains(&n.pos.arena_idx));
+
+        // Move node indices back.
+        for node in self.nodes.iter_mut() {
+            let n_idx = node.pos.arena_idx;
+            let p_idx = node.pos.parent_idx;
+            node.pos.arena_idx = idxs
+                .iter()
+                .fold(n_idx, |acc, i| if *i < n_idx { acc - 1 } else { acc });
+            node.pos.parent_idx = idxs
+                .iter()
+                .fold(p_idx, |acc, i| if *i < p_idx { acc - 1 } else { acc });
+            let mut new_children: Vec<usize> = vec![];
+            for cn in node.pos.children.clone().into_iter() {
+                if idxs.contains(&cn) {
+                    continue;
+                }
+                new_children.push(
+                    idxs.iter()
+                        .fold(cn, |acc, i| if *i < cn { acc - 1 } else { acc }),
+                );
+            }
+            node.pos.children = new_children;
+        }
+
+        return Some(());
+    }
+
+    /// Place a node to the position of another node, pointed to by index. Pushes siblings to right.
+    /// Fails if no node found at index or if node at index is the root.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Index to emplace at.
+    ///
+    /// * `val` - Value of the new node.
+    ///
     pub fn emplace(&mut self, index: usize, val: T) -> Option<NodePosition> {
         let new_index = self.nodes.len();
         let valid_index = new_index > index && index != 0;
@@ -306,10 +412,61 @@ mod tree_t {
     }
 
     #[test]
+    fn bfs_iteration_from_index() {
+        let mut tree: Tree<&str> = make_tree();
+        tree.add_node(&"f", "h");
+        tree.add_node(&"g", "i");
+        tree.add_node(&"g", "j");
+        let vals = ["c", "f", "g", "h", "i", "j"];
+        let start_idx = tree.find_node(&"c").unwrap();
+        assert!(tree
+            .nodes_bfs_from(start_idx.pos.arena_idx)
+            .map(|n| n.val)
+            .eq(vals));
+    }
+
+    #[test]
+    fn dfs_iteration_from_index() {
+        let mut tree: Tree<&str> = make_tree();
+        tree.add_node(&"f", "h");
+        tree.add_node(&"g", "i");
+        tree.add_node(&"g", "j");
+        let vals = ["c", "f", "h", "g", "i", "j"];
+        let start_idx = tree.find_node(&"c").unwrap().pos.arena_idx;
+        assert!(tree.nodes_dfs_from(start_idx).map(|n| n.val).eq(vals));
+    }
+
+    #[test]
     fn dfs_iteration() {
         let tree: Tree<&str> = make_tree();
         let vals = ["a", "b", "e", "c", "f", "g", "d"];
         assert!(tree.nodes_dfs().map(|n| n.val).eq(vals));
+    }
+
+    #[test]
+    fn removing_nodes() {
+        // Case 1
+        let mut tree1: Tree<&str> = make_tree();
+        tree1.remove_node(tree1.find_node(&"b").unwrap().pos.arena_idx);
+        let vals1 = ["a", "c", "d", "f", "g"];
+        assert!(tree1.nodes_bfs().map(|n| n.val).eq(vals1));
+
+        // Case 2
+        let mut tree2: Tree<&str> = make_tree();
+        tree2.add_node(&"f", "h");
+        tree2.add_node(&"g", "i");
+        tree2.add_node(&"g", "j");
+        tree2.add_node(&"d", "x");
+        tree2.add_node(&"d", "y");
+        tree2.add_node(&"y", "z");
+        tree2.remove_node(tree2.find_node(&"c").unwrap().pos.arena_idx);
+        let vals2 = ["a", "b", "d", "e", "x", "y", "z"];
+        assert!(tree2.nodes_bfs().map(|n| n.val).eq(vals2));
+
+        // Case 3
+        let mut tree3: Tree<&str> = make_tree();
+        tree3.remove_node(tree3.find_node(&"a").unwrap().pos.arena_idx);
+        assert_eq!(tree3.nodes.len(), 0)
     }
 
     #[test]
